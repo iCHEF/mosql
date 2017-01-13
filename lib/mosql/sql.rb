@@ -34,9 +34,25 @@ module MoSQL
       h
     end
 
+    def transform_one_related_ns(ns, obj)
+      cols = @schema.all_columns(@schema.find_ns(ns))
+      rows = @schema.transform_related(ns, obj)
+      rows.map{|row| cols.zip(row).to_h}
+    end
+
     def upsert_ns(ns, obj)
       h = transform_one_ns(ns, obj)
       upsert!(table_for_ns(ns), @schema.primary_sql_key_for_ns(ns), h)
+      upsert_all_related_ns(ns, obj)
+    end
+
+    def upsert_all_related_ns(ns, obj)
+      @schema.all_related_ns(ns).each do |rns|
+        hs = transform_one_related_ns(rns, obj)
+        hs.each do |h|
+          upsert!(table_for_ns(rns), @schema.primary_sql_key_for_ns(rns), h)
+        end
+      end
     end
 
     def delete_ns(ns, obj)

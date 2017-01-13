@@ -104,6 +104,68 @@ EOF
     assert_equal(o['_id'].to_s, table.select.first[:_id])
   end
 
+  describe "related fields" do
+    RELATED_MAP = <<-EOF
+db:
+  parents:
+    :meta:
+      :table: related_main
+    :columns:
+      - _id: TEXT
+      - uuid:
+        :source: uuid
+        :type: uuid
+    :related:
+      :children:
+        - _id:
+          :source: children[]._id
+          :type: TEXT
+          :primary_key: true
+        - parent_id:
+          :source: uuid
+          :type: uuid
+    EOF
+    before do
+      @related_map = MoSQL::Schema.new(YAML.load(RELATED_MAP))
+
+      @sequel.drop_table?(:related_main)
+      @sequel.drop_table?(:children)
+      @related_map.create_schema(@sequel)
+    end
+
+    let(:parent_table) { @sequel[:related_main] }
+    let(:children_table) { @sequel[:children] }
+
+    it "can create db by schema" do
+      assert_equal([:_id,:uuid],@sequel[:related_main].columns)
+      assert_equal([:_id, :parent_id], @sequel[:children].columns)
+    end
+
+    it "can get all_related_ns" do
+      assert_equal(@related_map.all_related_ns("db.parents"), ["db.parents.related.children"])
+    end
+
+    it "can get primary_key for children ns" do
+      assert_equal(@related_map.primary_sql_key_for_ns("db.parents.related.children"), ["_id"])
+    end
+
+    it "can copy data" do
+      objects = [
+        { _id: "a", uuid: SecureRandom.uuid, children: [{_id: "a_a"}, {_id: "a_b"}]},
+        { _id: "b", uuid: SecureRandom.uuid, children: [{_id: "b_a"}, {_id: "b_b"}]}
+      ]
+      @related_map.copy_data(@sequel, "db.parents", objects.map { |o| @related_map.transform("db.parents", o) } )
+      mapped = objects.flat_map { |o| @related_map.transform_related("db.parents.related.children", o) }
+      @related_map.copy_data(@sequel, "db.parents.related.children", mapped)
+      first_parent_obj = objects[0].select{|k,v| [:_id, :uuid].include?(k)}
+      assert_equal(first_parent_obj, parent_table.first(_id: "a"))
+      first_child_obj = objects[0][:children][0]
+      first_child_obj[:parent_id] = first_parent_obj[:uuid]
+      assert_equal(first_child_obj, children_table.first(_id: "a_a"))
+
+    end
+  end
+
   describe 'special fields' do
   SPECIAL_MAP = <<EOF
 ---
@@ -136,6 +198,7 @@ EOF
                  {'_id' => "a"},
                  {'_id' => "b"}
                 ]
+      Sequel.database_timezone = Time.now.zone
       before = @sequel.select(Sequel.function(:NOW)).first[:now]
       @specialmap.copy_data(@sequel, 'db.collection',
                             objects.map { |o| @specialmap.transform('db.collection', o) } )

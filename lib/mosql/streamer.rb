@@ -134,6 +134,8 @@ module MoSQL
       count = 0
       batch = []
       table = @sql.table_for_ns(ns)
+      relations_ns = @schema.all_related_ns(ns)
+      relations_batch = relations_ns.each.map{|k| [k,[]]}.to_h
       unless options[:no_drop_tables] || did_truncate[table.first_source]
         table.truncate
         did_truncate[table.first_source] = true
@@ -144,12 +146,16 @@ module MoSQL
       collection.find(filter, :batch_size => BATCH) do |cursor|
         with_retries do
           cursor.each do |obj|
+
             batch << @schema.transform(ns, obj)
             count += 1
+
+            append_related_batch(relations_batch, obj)
 
             if batch.length >= BATCH
               sql_time += track_time do
                 bulk_upsert(table, ns, batch)
+                bulk_upsert_related(relations_batch)
               end
               elapsed = Time.now - start
               log.info("Imported #{count} rows (#{elapsed}s, #{sql_time}s SQL)...")
@@ -160,8 +166,25 @@ module MoSQL
         end
       end
 
+      bulk_upsert_related(relations_batch)
       unless batch.empty?
         bulk_upsert(table, ns, batch)
+      end
+    end
+
+    def append_related_batch(relations_batch, obj)
+      relations_batch.each do |related_ns,related_batch|
+        related_objs = @schema.transform_related(related_ns, obj)
+        related_batch.push(*related_objs)
+      end
+    end
+
+    def bulk_upsert_related(relations_batch)
+      relations_batch.each do |related_ns,related_batch|
+        next if related_batch.empty?
+        related_table = @sql.table_for_ns(related_ns)
+        bulk_upsert(related_table, related_ns, related_batch)
+        related_batch.clear
       end
     end
 

@@ -13,12 +13,14 @@ module MoSQL
             :source => ent.fetch(:source),
             :type   => ent.fetch(:type),
             :name   => (ent.keys - [:source, :type]).first,
+            :primary_key => ent.fetch(:primary_key, false)
           }
         elsif ent.is_a?(Hash) && ent.keys.length == 1 && ent.values.first.is_a?(String)
           col = {
             :source => ent.first.first,
             :name   => ent.first.first,
-            :type   => ent.first.last
+            :type   => ent.first.last,
+            :primary_key => ent.fetch(:primary_key, false)
           }
         else
           raise SchemaError.new("Invalid ordered hash entry #{ent.inspect}")
@@ -32,9 +34,9 @@ module MoSQL
       end
     end
 
-    def check_columns!(ns, spec)
+    def check_columns!(ns, columns)
       seen = Set.new
-      spec[:columns].each do |col|
+      columns.each do |col|
         if seen.include?(col[:source])
           raise SchemaError.new("Duplicate source #{col[:source]} in column definition #{col[:name]} for #{ns}.")
         end
@@ -42,10 +44,20 @@ module MoSQL
       end
     end
 
+    def parse_related_spec(spec)
+      spec.fetch(:related, {}).map do |k,v|
+        [k, to_array(v)]
+      end.to_h
+    end
+
     def parse_spec(ns, spec)
       out = spec.dup
       out[:columns] = to_array(spec.fetch(:columns))
-      check_columns!(ns, out)
+      out[:related] = parse_related_spec(spec)
+      check_columns!(ns, out[:columns])
+      out[:related].values.each do |columns|
+        check_columns!(ns, columns)
+      end
       out
     end
 
@@ -75,21 +87,31 @@ module MoSQL
       Sequel.default_timezone = :utc
     end
 
-    def create_schema(db, clobber=false)
-      @map.values.each do |dbspec|
-        dbspec.each do |n, collection|
-          next unless n.is_a?(String)
-          meta = collection[:meta]
-          composite_key = meta[:composite_key]
-          keys = []
-          log.info("Creating table '#{meta[:table]}'...")
-          db.send(clobber ? :create_table! : :create_table?, meta[:table]) do
-            collection[:columns].each do |col|
-              opts = {}
-              if col[:source] == '$timestamp'
-                opts[:default] = Sequel.function(:now)
-              end
-              column col[:name], col[:type], opts
+    def create_schema_for_related_tables(db, related, clobber)
+      return unless related
+      related.map do |name,columns|
+        log.info("Creating related table '#{name}'...")
+        db.send(clobber ? :create_table! : :create_table?, name) do
+          columns.each do |col|
+            column col[:name], col[:type]
+          end
+
+        end
+      end
+    end
+
+    def create_schema_for_collection(db, collection, clobber)
+      meta = collection[:meta]
+      composite_key = meta[:composite_key]
+      keys = []
+      log.info("Creating table '#{meta[:table]}'...")
+      db.send(clobber ? :create_table! : :create_table?, meta[:table]) do
+        collection[:columns].each do |col|
+          opts = {}
+          if col[:source] == '$timestamp'
+            opts[:default] = Sequel.function(:now)
+          end
+          column col[:name], col[:type], opts
 
               if composite_key and composite_key.include?(col[:name])
                 keys << col[:name].to_sym
@@ -111,7 +133,16 @@ module MoSQL
                 end
               column '_extra_props', type
             end
-          end
+      end
+    end
+
+    def create_schema(db, clobber=false)
+      @map.values.each do |dbspec|
+        dbspec.each do |n, collection|
+          next unless n.is_a?(String)
+          create_schema_for_collection(db, collection, clobber)
+          create_schema_for_related_tables(db, collection[:related], clobber)
+
         end
       end
     end
@@ -125,8 +156,26 @@ module MoSQL
       @map[db]
     end
 
+    def related_schema(schema, relation)
+      return schema unless relation
+      {
+        columns: schema[:related][relation.to_sym],
+        meta: { table: relation }
+      }
+    end
+
+    def all_related_ns(ns)
+      main_ns = find_ns(ns)
+      related_keys = main_ns.fetch( :related, {} ).keys
+      related_keys.map{|k| "#{ns}.related.#{k.to_s}"}
+    end
+
     def find_ns(ns)
-      db, collection = ns.split(".", 2)
+      if matched = ns.match(/([^.]+)\.(.+)\.related\.(.+)/)
+        _, db, collection, relation = *matched.to_a
+      else
+        db, collection = ns.split(".", 2)
+      end
       unless spec = find_db(db)
         return nil
       end
@@ -134,7 +183,7 @@ module MoSQL
         log.debug("No mapping for ns: #{ns}")
         return nil
       end
-      schema
+      related_schema(schema, relation)
     end
 
     def find_ns!(ns)
@@ -143,23 +192,28 @@ module MoSQL
       schema
     end
 
+    class ChildrenArray < Array
+    end
+
+    def fetch_and_delete_ary_dotted(obj, key, rest)
+      real_key = key.delete("[]")
+      return nil unless obj.has_key?(real_key)
+      result = obj[real_key].map do |o|
+        fetch_and_delete_dotted(o, rest)
+      end
+      obj.delete(real_key) if obj[real_key].all?{|o| o.empty?}
+      ChildrenArray.new(result)
+    end
+
     def fetch_and_delete_dotted(obj, dotted)
-      pieces = dotted.split(".")
-      breadcrumbs = []
-      while pieces.length > 1
-        key = pieces.shift
-        breadcrumbs << [obj, key]
-        obj = obj[key]
-        return nil unless obj.is_a?(Hash)
-      end
-
-      val = obj.delete(pieces.first)
-
-      breadcrumbs.reverse.each do |obj, key|
-        obj.delete(key) if obj[key].empty?
-      end
-
-      val
+      key, rest = dotted.split(".", 2)
+      obj ||= {}
+      return fetch_and_delete_ary_dotted(obj, key, rest) if key.end_with?("[]")
+      return nil unless obj.has_key?(key)
+      return obj.delete(key) unless rest
+      val = fetch_and_delete_dotted(obj[key], rest)
+      obj.delete(key) if obj[key].empty?
+      return val
     end
 
     def fetch_exists(obj, dotted)
@@ -202,6 +256,11 @@ module MoSQL
       end
     end
 
+    def transform_related(ns, obj, schema=nil)
+      row = transform(ns, obj, schema)
+      unfold_rows(row)
+    end
+
     def transform(ns, obj, schema=nil)
       schema ||= find_ns!(ns)
 
@@ -221,19 +280,21 @@ module MoSQL
           v = fetch_special_source(obj, source, original)
         else
           v = fetch_and_delete_dotted(obj, source)
-          case v
-          when Hash
-            v = JSON.dump(Hash[v.map { |k,v| [k, transform_primitive(v)] }])
-          when Array
-            v = v.map { |it| transform_primitive(it) }
-            if col[:array_type]
-              v = Sequel.pg_array(v, col[:array_type])
-            else
-              v = JSON.dump(v)
-            end
+        end
+        case v
+        when Hash
+          v = JSON.dump(Hash[v.map { |k,v| [k, transform_primitive(v)] }])
+        when ChildrenArray
+          #noop
+        when Array
+          v = v.map { |it| transform_primitive(it) }
+          if col[:array_type]
+            v = Sequel.pg_array(v, col[:array_type])
           else
-            v = transform_primitive(v, type)
+            v = JSON.dump(v)
           end
+        else
+          v = transform_primitive(v, type)
         end
         row << v
       end
@@ -246,6 +307,13 @@ module MoSQL
       log.debug { "Transformed: #{row.inspect}" }
 
       row
+    end
+
+    def unfold_rows(row)
+      # Convert row [a, [b, c], d] into [[a, b, d], [a, c, d]]
+      depth = row.select {|r| r.is_a? Array}.map {|r| [r].flatten.length }.max
+      row.map! {|r| [r].flatten.cycle.take(depth)}
+      row.first.zip(*row.drop(1))
     end
 
     def sanitize(value)
@@ -346,7 +414,7 @@ module MoSQL
       if ns[:meta][:composite_key]
         keys = ns[:meta][:composite_key]
       else
-        keys << ns[:columns].find {|c| c[:source] == '_id'}[:name]
+        keys << ns[:columns].find {|c| c[:source] == '_id' || c.fetch(:primary_key)}[:name]
       end
 
       return keys
