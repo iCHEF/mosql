@@ -327,8 +327,60 @@ module MoSQL
       row
     end
 
+    def array_depth(ary)
+      # It assums the array is homogenerous
+      return 0 unless ary.is_a? Array
+      return 1 + array_depth(ary[0])
+    end
+
+    require 'tree'
+    Node=Tree::TreeNode
+    def make_tree(node, ary)
+      return unless ary && !ary.empty?
+      idx = node.name.to_i
+      sub_ary = ary.map{|elm| elm[idx]}
+      children_vals = sub_ary[0]
+      children = children_vals.map.with_index{|val, i| Node.new(i.to_s, val)}
+      tail = sub_ary[1..-1]
+      children.each do |child|
+        node << child
+        make_tree(child, tail)
+      end
+    end
+
+    def row_nested?(row)
+      row.any?{|col| col.is_a?(Array) && col.any?{|x| x.is_a?(Array)}}
+    end
+
+    def row_from_leaf(node)
+      reversed_row_from_leaf(node).reverse
+    end
+
+    def reversed_row_from_leaf(node)
+      return [node.content] if node.is_root?
+      return [node.content] + reversed_row_from_leaf(node.parent)
+    end
+
+    def nested_unfold_rows(row)
+      # Convert row [a, [b, c], [[d,e], [f,g]]] into [[a, b, d], [a, b, e], [a, c, f], [a, c, g]]
+      arrayed_columns = row.map{|c| [c]}
+      columns_with_orig_index = arrayed_columns.each_with_index.to_a
+      cols_by_depth = columns_with_orig_index.sort_by{|c,i| array_depth(c)}
+      orig_index = cols_by_depth.map{|c,i| i}
+      cols = cols_by_depth.map{|c,i| c}
+      root = Node.new("0", cols[0][0])
+      make_tree(root, cols[1..-1])
+      leaves = root.find_all(&:is_leaf?)
+      rows = leaves.map{|leaf| row_from_leaf(leaf)}
+      rows_with_orig_ordering = rows.map do |r|
+        r.zip(orig_index).sort_by(&:last).map(&:first)
+      end
+      rows_with_orig_ordering
+    end
+
     def unfold_rows(row)
       # Convert row [a, [b, c], d] into [[a, b, d], [a, c, d]]
+      return nested_unfold_rows(row) if row_nested?(row)
       depth = row.select {|r| r.is_a? Array}.map {|r| [r].flatten.length }.max
       row.map! {|r| [r].flatten.cycle.take(depth)}
       row.first.zip(*row.drop(1))
