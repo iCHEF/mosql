@@ -333,18 +333,31 @@ module MoSQL
       return 1 + array_depth(ary[0])
     end
 
+    def make_children_chains(sub_ary)
+      heads = sub_ary.find_all{|elm| array_depth(elm) == 1}
+      children_val_pairs = heads[0].zip(*heads[1..-1])
+      children_chains = children_val_pairs.map.with_index do |pair, i|
+        label = i.to_s
+        chain_head = Node.new(label, pair[0])
+        chain_tail = pair[1..-1].reduce(chain_head) do |parent, val|
+          parent << Node.new(label, val)
+        end
+        [chain_head, chain_tail]
+      end
+      children_chains
+    end
+
     require 'tree'
     Node=Tree::TreeNode
     def make_tree(node, ary)
       return unless ary && !ary.empty?
       idx = node.name.to_i
       sub_ary = ary.map{|elm| elm[idx]}
-      children_vals = sub_ary[0]
-      children = children_vals.map.with_index{|val, i| Node.new(i.to_s, val)}
-      tail = sub_ary[1..-1]
-      children.each do |child|
-        node << child
-        make_tree(child, tail)
+      children_chains = make_children_chains(sub_ary)
+      tail = sub_ary.find_all{|elm| array_depth(elm) > 1}
+      children_chains.each do |chain|
+        node << chain.first
+        make_tree(chain.last, tail)
       end
     end
 

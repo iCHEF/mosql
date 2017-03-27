@@ -267,6 +267,9 @@ db:
           :source: children[].nested[].id
           :type: TEXT
           :primary_key: true
+        - nested_info:
+          :source: children[].nested[].info
+          :type: TEXT
         - parent_id:
           :source: uuid
           :type: uuid
@@ -284,7 +287,7 @@ db:
 
     it "can create db by schema" do
       assert_equal([:_id, :uuid],@sequel[:related_main].columns)
-      assert_equal([:_id, :nested, :parent_id], @sequel[:children].columns)
+      assert_equal([:_id, :nested, :nested_info, :parent_id], @sequel[:children].columns)
     end
 
     it "can get all_related_ns" do
@@ -297,8 +300,8 @@ db:
 
     it "can copy data" do
       objects = [
-        { _id: "a", uuid: SecureRandom.uuid, children: [{_id: "a_a", nested:[{id: "a_a_1"}, {id:"a_a_2"}]}, {_id: "a_b", nested:[{id: "a_b_1"}, {id:"a_b_2"}]}]},
-        { _id: "b", uuid: SecureRandom.uuid, children: [{_id: "b_a", nested:[{id: "b_a_1"}, {id:"b_a_2"}]}, {_id: "b_b", nested:[{id: "b_b_1"}, {id:"b_b_2"}]}]}
+        { _id: "a", uuid: SecureRandom.uuid, children: [{_id: "a_a", nested:[{id: "a_a_1", info: "aa1i"}, {id:"a_a_2", info: "aa2i"}]}, {_id: "a_b", nested:[{id: "a_b_1", info: "ab1i"}, {id:"a_b_2", info: "ab2i"}]}]},
+        { _id: "b", uuid: SecureRandom.uuid, children: [{_id: "b_a", nested:[{id: "b_a_1", info: "ba1i"}, {id:"b_a_2", info: "ba2i"}]}, {_id: "b_b", nested:[{id: "b_b_1", info: "bb1i"}, {id:"b_b_2", info: "bb2i"}]}]}
       ]
       @related_map.copy_data(@sequel, "db.parents", objects.map { |o| @related_map.transform("db.parents", o) } )
       mapped = objects.flat_map { |o| @related_map.transform_related("db.parents.related.children", o) }
