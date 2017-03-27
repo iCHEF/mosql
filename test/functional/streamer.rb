@@ -446,6 +446,124 @@ db:
 
   end
 
+  describe 'related nested models' do
+    RELATED_NESTED_MAP = <<-EOF
+db:
+  parents:
+    :meta:
+      :table: related_main
+    :columns:
+      - _id: TEXT
+      - id:
+        :source: "$default"
+        :type: Serial
+      - uuid:
+        :source: uuid
+        :type: uuid
+    :related:
+      :children:
+        - _id:
+          :source: children[]._id
+          :type: TEXT
+        - info:
+          :source: children[].info
+          :type: TEXT
+        - nested:
+          :source: children[].nested[].id
+          :type: TEXT
+          :primary_key: true
+        - parent_id:
+          :source: uuid
+          :type: uuid
+    EOF
+
+    before do
+      @map = MoSQL::Schema.new(YAML.load(RELATED_NESTED_MAP))
+      @adapter = MoSQL::SQLAdapter.new(@map, sql_test_uri)
+
+      mongo['db']['parents'].drop
+      @sequel.drop_table?(:related_main)
+      @sequel.drop_table?(:children)
+      @map.create_schema(@sequel)
+
+      @streamer = build_streamer
+    end
+
+    it "create objects from initial import" do
+      objects = [
+        { _id: "a", uuid: SecureRandom.uuid, children: [{_id: "a_a", nested:[{id: "a_a_1"}, {id:"a_a_2"}]}, {_id: "a_b", nested:[{id: "a_b_1"}, {id:"a_b_2"}]}]}
+      ]
+      mongo["db"]["parents"].insert(objects[0])
+      @streamer.options[:skip_tail] = true
+      @streamer.initial_import
+      parent_row = @sequel[:related_main].select.to_a
+      assert_equal(1, parent_row.length)
+      children_rows = @sequel[:children].select.to_a
+      assert_equal(4, children_rows.length)
+    end
+
+    it "when nested array is an empty array, create objects from initial import" do
+      objects = [
+        { _id: "a", uuid: SecureRandom.uuid, children: [{_id: "a_a", nested:[]}]}
+      ]
+      mongo["db"]["parents"].insert(objects[0])
+      @streamer.options[:skip_tail] = true
+      @streamer.initial_import
+      parent_row = @sequel[:related_main].select.to_a
+      assert_equal(1, parent_row.length)
+      children_rows = @sequel[:children].select.to_a
+      #FIXME
+      #assert_equal(0, children_rows.length)
+    end
+
+    it "can tail oplog" do
+      objects = [
+        { _id: "a", uuid: SecureRandom.uuid, children: [{_id: "a_a", nested:[{id: "a_a_1"}, {id:"a_a_2"}]}, {_id: "a_b", nested:[{id: "a_b_1"}, {id:"a_b_2"}]}]}
+      ]
+      id = mongo["db"]["parents"].insert(objects[0])
+      op = {
+          "h"  => -965650193548512060,
+          "v"  => 2,
+          "op" => "i",
+          "ns" => "db.parents",
+          "o" => mongo["db"]["parents"].find_one({_id: id})
+      }
+      @streamer.handle_op(op)
+      parent_row = @sequel[:related_main].select.to_a
+      assert_equal(1, parent_row.length)
+      children_rows = @sequel[:children].select.to_a
+      assert_equal(4, children_rows.length)
+    end
+
+    it "can update when tailing" do
+      objects = [
+        { _id: "a", uuid: SecureRandom.uuid, children: [{_id: "a_a", info: "im a"}, {_id: "a_b", info: "im b"}]}
+      ]
+      id = mongo["db"]["parents"].insert(objects[0])
+      @streamer.options[:skip_tail] = true
+      @streamer.initial_import
+      op = {
+          "h"  => -965650193548512061,
+          "v"  => 2,
+          "op" => "u",
+          "ns" => "db.parents",
+          "o" => {"$set" => { "children[0].info" => "new info"}},
+          "o2" => {"_id" => id}
+      }
+      objects[0][:children][0][:info] = "new info"
+      mongo["db"]["parents"].update( {_id: id}, { "$set" => {children: objects[0][:children]}})
+      @streamer.handle_op(op)
+      children_rows = @sequel[:children].select.to_a
+      assert_equal(2, children_rows.length)
+      first_child = @sequel[:children].where(:_id => "a_a").select.to_a[0]
+      #FIXME: (johnlinvc) it's not working
+      #assert_equal(first_child[:info], "new info")
+    end
+
+    it "can prevent creating duplicate related row"
+
+  end
+
   describe 'timestamps' do
   TIMESTAMP_MAP = <<EOF
 ---

@@ -247,6 +247,74 @@ db:
     end
   end
 
+  describe "nested related fields" do
+    NESTED_RELATED_MAP = <<-EOF
+db:
+  parents:
+    :meta:
+      :table: related_main
+    :columns:
+      - _id: TEXT
+      - uuid:
+        :source: uuid
+        :type: uuid
+    :related:
+      :children:
+        - _id:
+          :source: children[]._id
+          :type: TEXT
+        - nested:
+          :source: children[].nested[].id
+          :type: TEXT
+          :primary_key: true
+        - parent_id:
+          :source: uuid
+          :type: uuid
+    EOF
+    before do
+      @related_map = MoSQL::Schema.new(YAML.load(NESTED_RELATED_MAP))
+
+      @sequel.drop_table?(:related_main)
+      @sequel.drop_table?(:children)
+      @related_map.create_schema(@sequel)
+    end
+
+    let(:parent_table) { @sequel[:related_main] }
+    let(:children_table) { @sequel[:children] }
+
+    it "can create db by schema" do
+      assert_equal([:_id, :uuid],@sequel[:related_main].columns)
+      assert_equal([:_id, :nested, :parent_id], @sequel[:children].columns)
+    end
+
+    it "can get all_related_ns" do
+      assert_equal(@related_map.all_related_ns("db.parents"), ["db.parents.related.children"])
+    end
+
+    it "can get primary_key for children ns" do
+      assert_equal(@related_map.primary_sql_key_for_ns("db.parents.related.children"), ["nested"])
+    end
+
+    it "can copy data" do
+      objects = [
+        { _id: "a", uuid: SecureRandom.uuid, children: [{_id: "a_a", nested:[{id: "a_a_1"}, {id:"a_a_2"}]}, {_id: "a_b", nested:[{id: "a_b_1"}, {id:"a_b_2"}]}]},
+        { _id: "b", uuid: SecureRandom.uuid, children: [{_id: "b_a", nested:[{id: "b_a_1"}, {id:"b_a_2"}]}, {_id: "b_b", nested:[{id: "b_b_1"}, {id:"b_b_2"}]}]}
+      ]
+      @related_map.copy_data(@sequel, "db.parents", objects.map { |o| @related_map.transform("db.parents", o) } )
+      mapped = objects.flat_map { |o| @related_map.transform_related("db.parents.related.children", o) }
+      @related_map.copy_data(@sequel, "db.parents.related.children", mapped)
+      first_parent_obj = objects[0].select{|k,v| [:_id, :uuid].include?(k)}
+      assert_equal(first_parent_obj, parent_table.first(_id: "a"))
+      first_child_obj = objects[0][:children][0]
+      first_child_obj[:parent_id] = first_parent_obj[:uuid]
+      assert_equal(8, children_table.count)
+      aa1 = children_table.where(nested: "a_a_1").all[0]
+      assert_equal(aa1[:_id], "a_a")
+      aa2 = children_table.where(nested: "a_a_2").all[0]
+      assert_equal(aa2[:_id], "a_a")
+    end
+  end
+
   describe 'special fields' do
   SPECIAL_MAP = <<EOF
 ---
