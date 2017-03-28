@@ -273,6 +273,11 @@ db:
         - parent_id:
           :source: uuid
           :type: uuid
+          :reused: true
+        - parent_uuid:
+          :source: uuid
+          :type: uuid
+          :reused: true
     EOF
     before do
       @related_map = MoSQL::Schema.new(YAML.load(NESTED_RELATED_MAP))
@@ -287,7 +292,7 @@ db:
 
     it "can create db by schema" do
       assert_equal([:_id, :uuid],@sequel[:related_main].columns)
-      assert_equal([:_id, :nested, :nested_info, :parent_id], @sequel[:children].columns)
+      assert_equal([:_id, :nested, :nested_info, :parent_id, :parent_uuid], @sequel[:children].columns)
     end
 
     it "can get all_related_ns" do

@@ -375,6 +375,11 @@ module MoSQL
       return [node.content] + reversed_row_from_leaf(node.parent)
     end
 
+    def make_tree_root_chain(cols)
+      heads = cols.find_all{|elm| array_depth(elm) == 1}.find_all(&:itself)
+      make_children_chains(heads)[0]
+    end
+
     def nested_unfold_rows(row)
       # Convert row [a, [b, c], [[d,e], [f,g]]] into [[a, b, d], [a, b, e], [a, c, f], [a, c, g]]
       arrayed_columns = row.map{|c| [c]}
@@ -382,14 +387,14 @@ module MoSQL
       cols_by_depth = columns_with_orig_index.sort_by{|c,i| array_depth(c)}
       orig_index = cols_by_depth.map{|c,i| i}
       cols = cols_by_depth.map{|c,i| c}
-      root = Node.new("0", cols[0][0])
+      root_chain = make_tree_root_chain(cols)
       begin
-        make_tree(root, cols[1..-1])
+        make_tree(root_chain.last, cols[1..-1])
       rescue => e
         p row
         raise e
       end
-      leaves = root.find_all(&:is_leaf?)
+      leaves = root_chain.first.find_all(&:is_leaf?)
       rows = leaves.map{|leaf| row_from_leaf(leaf)}
       rows_with_orig_ordering = rows.map do |r|
         r.zip(orig_index).sort_by(&:last).map(&:first)
