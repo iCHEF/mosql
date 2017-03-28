@@ -382,7 +382,12 @@ module MoSQL
       orig_index = cols_by_depth.map{|c,i| i}
       cols = cols_by_depth.map{|c,i| c}
       root = Node.new("0", cols[0][0])
-      make_tree(root, cols[1..-1])
+      begin
+        make_tree(root, cols[1..-1])
+      rescue => e
+        p row
+        raise e
+      end
       leaves = root.find_all(&:is_leaf?)
       rows = leaves.map{|leaf| row_from_leaf(leaf)}
       rows_with_orig_ordering = rows.map do |r|
