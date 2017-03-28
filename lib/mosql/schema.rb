@@ -353,6 +353,7 @@ module MoSQL
       idx = node.name.to_i
       sub_ary = ary.map{|elm| elm[idx]}
       heads = sub_ary.find_all{|elm| array_depth(elm) == 1}.find_all(&:itself)
+      return if heads.empty?
       children_chains = make_children_chains(heads)
       tail = sub_ary.find_all{|elm| array_depth(elm) > 1}
       children_chains.each do |chain|
