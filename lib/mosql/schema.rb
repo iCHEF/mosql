@@ -295,7 +295,13 @@ module MoSQL
           next if source == "$default"
           v = fetch_special_source(obj, source, original)
         else
-          v = fetch_and_delete_dotted(obj, source, reused)
+          begin
+            v = fetch_and_delete_dotted(obj, source, reused)
+          rescue NoMethodError => e
+            log.info(obj.inspect)
+            log.debug(source.inspect)
+            raise e
+          end
         end
         case v
         when Hash
