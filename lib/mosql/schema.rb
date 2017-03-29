@@ -299,7 +299,7 @@ module MoSQL
             v = fetch_and_delete_dotted(obj, source, reused)
           rescue NoMethodError => e
             log.info(obj.inspect)
-            log.debug(source.inspect)
+            log.info(source.inspect)
             raise e
           end
         end
