@@ -272,7 +272,7 @@ module MoSQL
 
     def transform_related(ns, obj, schema=nil)
       row = transform(ns, obj, schema)
-      unfold_rows(row)
+      unfold_rows(row).tap{|rows| eval(ENV["TF_RELATED_BREAK"], "nil") ? p rows : nil}
     end
 
     def transform(ns, obj, schema=nil)
