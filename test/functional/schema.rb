@@ -321,6 +321,16 @@ db:
       aa2 = children_table.where(nested: "a_a_2").all[0]
       assert_equal(aa2[:_id], "a_a")
     end
+
+    it "can transform related data with first nested nil" do
+      objects = [
+        { _id: "a", uuid: SecureRandom.uuid, children: [{_id: "a_a", nested:[]}, {_id: "a_b", nested:[{id: "a_b_1", info: "ab1i"}, {id:"a_b_2", info: "ab2i"}]}]},
+      ]
+      mapped = objects.flat_map { |o| @related_map.transform_related("db.parents.related.children", o) }
+      assert_equal(mapped.count, 3)
+    end
+
+
   end
 
   describe 'special fields' do

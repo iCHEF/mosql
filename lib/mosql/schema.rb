@@ -334,9 +334,9 @@ module MoSQL
     end
 
     def array_depth(ary)
-      # It assums the array is homogenerous
       return 0 unless ary.is_a? Array
-      return 1 + array_depth(ary[0])
+      return 1 if ary.empty?
+      return 1 + ary.map{|elm| array_depth(elm)}.max
     end
 
     require 'tree'
