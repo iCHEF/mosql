@@ -401,11 +401,28 @@ module MoSQL
         raise e
       end
       leaves = root_chain.first.find_all(&:is_leaf?)
-      rows = leaves.map{|leaf| row_from_leaf(leaf)}
+      max_level = leaves.map(&:level).max
+      fill_leaves!(leaves, max_level)
+      full_leaves = root_chain.first.find_all(&:is_leaf?)
+      rows = full_leaves.map{|leaf| row_from_leaf(leaf)}
       rows_with_orig_ordering = rows.map do |r|
         r.zip(orig_index).sort_by(&:last).map(&:first)
       end
       rows_with_orig_ordering
+    end
+
+    def fill_leaf!(leaf, level)
+      (level-leaf.level).times do
+        new_leaf = Node.new("0", nil)
+        leaf << new_leaf
+        leaf = new_leaf
+      end
+    end
+
+    def fill_leaves!(leaves, level)
+      leaves.each do |leaf|
+        fill_leaf!(leaf, level)
+      end
     end
 
     def unfold_rows(row)

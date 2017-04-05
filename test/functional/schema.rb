@@ -263,6 +263,9 @@ db:
         - _id:
           :source: children[]._id
           :type: TEXT
+        - third_layer:
+          :source: children[].nested[].third[].id
+          :type: TEXT
         - nested:
           :source: children[].nested[].id
           :type: TEXT
@@ -292,7 +295,7 @@ db:
 
     it "can create db by schema" do
       assert_equal([:_id, :uuid],@sequel[:related_main].columns)
-      assert_equal([:_id, :nested, :nested_info, :parent_id, :parent_uuid], @sequel[:children].columns)
+      assert_equal([:_id, :third_layer, :nested, :nested_info, :parent_id, :parent_uuid], @sequel[:children].columns)
     end
 
     it "can get all_related_ns" do
@@ -328,6 +331,14 @@ db:
       ]
       mapped = objects.flat_map { |o| @related_map.transform_related("db.parents.related.children", o) }
       assert_equal(mapped.count, 3)
+    end
+
+    it "can transform related data with first third layer nil" do
+      objects = [
+        { _id: "a", uuid: SecureRandom.uuid, children: [{_id: "a_b", nested:[{id: "a_b_1", info: "ab1i", third:[]}, {id:"a_b_2", info: "ab2i", third:[id: "thrid"]}]}]},
+      ]
+      mapped = objects.flat_map { |o| @related_map.transform_related("db.parents.related.children", o) }
+      assert_equal(mapped.count, 2)
     end
 
 
