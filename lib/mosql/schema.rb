@@ -106,6 +106,9 @@ module MoSQL
         db.send(clobber ? :create_table! : :create_table?, name) do
           columns.each do |col|
             opts = {}
+            if col[:source] == '$timestamp'
+              opts[:default] = Sequel.function(:now)
+            end
             opts[:null] = false if col[:nonnull]
             column col[:name], col[:type], opts
           end
