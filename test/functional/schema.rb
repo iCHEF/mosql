@@ -263,9 +263,6 @@ db:
         - _id:
           :source: children[]._id
           :type: TEXT
-        - third_layer:
-          :source: children[].nested[].third[].id
-          :type: TEXT
         - nested:
           :source: children[].nested[].id
           :type: TEXT
@@ -287,7 +284,7 @@ db:
 
       @sequel.drop_table?(:related_main)
       @sequel.drop_table?(:children)
-      @related_map.create_schema(@sequel)
+      @related_map.create_schema(@sequel, true)
     end
 
     let(:parent_table) { @sequel[:related_main] }
@@ -295,7 +292,7 @@ db:
 
     it "can create db by schema" do
       assert_equal([:_id, :uuid],@sequel[:related_main].columns)
-      assert_equal([:_id, :third_layer, :nested, :nested_info, :parent_id, :parent_uuid], @sequel[:children].columns)
+      assert_equal([:_id, :nested, :nested_info, :parent_id, :parent_uuid], @sequel[:children].columns)
     end
 
     it "can get all_related_ns" do
@@ -333,14 +330,63 @@ db:
       assert_equal(mapped.count, 3)
     end
 
+
+  end
+
+  describe "three layer nested related fields" do
+    THREE_LAYER_NESTED_RELATED_MAP = <<-EOF
+db:
+  parents:
+    :meta:
+      :table: related_main
+    :columns:
+      - _id: TEXT
+      - uuid:
+        :source: uuid
+        :type: uuid
+    :related:
+      :children:
+        - _id:
+          :source: children[]._id
+          :type: TEXT
+        - third_layer:
+          :source: children[].nested[].third[].id
+          :type: TEXT
+          :nonnull: true
+        - nested:
+          :source: children[].nested[].id
+          :type: TEXT
+          :primary_key: true
+        - nested_info:
+          :source: children[].nested[].info
+          :type: TEXT
+        - parent_id:
+          :source: uuid
+          :type: uuid
+          :reused: true
+        - parent_uuid:
+          :source: uuid
+          :type: uuid
+          :reused: true
+    EOF
+    before do
+      @related_map = MoSQL::Schema.new(YAML.load(THREE_LAYER_NESTED_RELATED_MAP))
+
+      @sequel.drop_table?(:related_main)
+      @sequel.drop_table?(:children)
+      @related_map.create_schema(@sequel, true)
+    end
+
     it "can transform related data with first third layer nil" do
       objects = [
         { _id: "a", uuid: SecureRandom.uuid, children: [{_id: "a_b", nested:[{id: "a_b_1", info: "ab1i", third:[]}, {id:"a_b_2", info: "ab2i", third:[id: "thrid"]}]}]},
       ]
       mapped = objects.flat_map { |o| @related_map.transform_related("db.parents.related.children", o) }
       assert_equal(mapped.count, 2)
+      assert_raises Sequel::NotNullConstraintViolation do
+        @related_map.copy_data(@sequel, "db.parents.related.children", mapped)
+      end
     end
-
 
   end
 

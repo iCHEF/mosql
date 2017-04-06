@@ -21,6 +21,7 @@ module MoSQL
             :post_process => compile_post_process(ent.fetch(:post_process, nil)),
             :primary_key => ent.fetch(:primary_key, false),
             :reused => ent.fetch(:reused, false),
+            :nonnull => ent.fetch(:nonnull, false),
           }
         elsif ent.is_a?(Hash) && ent.keys.length == 1 && ent.values.first.is_a?(String)
           col = {
@@ -30,6 +31,7 @@ module MoSQL
             :primary_key => ent.fetch(:primary_key, false),
             :post_process => nil,
             :reused => false,
+            :nonnull => ent.fetch(:nonnull, false),
           }
         else
           raise SchemaError.new("Invalid ordered hash entry #{ent.inspect}")
@@ -103,7 +105,9 @@ module MoSQL
         log.info("Creating related table '#{name}'...")
         db.send(clobber ? :create_table! : :create_table?, name) do
           columns.each do |col|
-            column col[:name], col[:type]
+            opts = {}
+            opts[:null] = false if col[:nonnull]
+            column col[:name], col[:type], opts
           end
 
         end
@@ -121,6 +125,7 @@ module MoSQL
           if col[:source] == '$timestamp'
             opts[:default] = Sequel.function(:now)
           end
+          opts[:null] = false if col[:nonnull]
           column col[:name], col[:type], opts
 
               if composite_key and composite_key.include?(col[:name])
