@@ -143,7 +143,7 @@ module MoSQL
 
       start    = Time.now
       sql_time = 0
-      collection.find(filter, :batch_size => BATCH) do |cursor|
+      collection.find(filter, :batch_size => BATCH, :timeout => false) do |cursor|
         with_retries do
           cursor.each do |obj|
 
