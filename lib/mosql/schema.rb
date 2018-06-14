@@ -280,7 +280,12 @@ module MoSQL
 
     def transform_related(ns, obj, schema=nil)
       row = transform(ns, obj, schema)
-      unfold_rows(row).tap{|rows| log.debug(rows.inspect)}
+      begin
+        unfold_rows(row).tap{|rows| log.debug(rows.inspect)}
+      rescue TypeError => e
+        log.info("failed to transform related object #{obj}")
+        []
+      end
     end
 
     def transform(ns, obj, schema=nil)

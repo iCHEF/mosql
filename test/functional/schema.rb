@@ -388,6 +388,14 @@ db:
       end
     end
 
+    it "can handle error when given empty data" do
+      objects = [
+        { _id: "a", uuid: SecureRandom.uuid},
+      ]
+      mapped = objects.flat_map { |o| @related_map.transform_related("db.parents.related.children", o) }
+      assert_equal(mapped.count, 0)
+    end
+
   end
 
   describe 'special fields' do
