@@ -295,8 +295,8 @@ module MoSQL
 
       # Do a deep clone, because we're potentially going to be
       # mutating embedded objects.
-      bson_limit = 16*1024*1024 # keith: Hit limit https://github.com/stripe/mosql/issues/101
-      obj = BSON.deserialize(BSON.serialize(obj, false, false, bson_limit))
+      mas_bson_size = 16*1024*1024 # keith: Hit limit https://github.com/stripe/mosql/issues/101
+      obj = BSON.deserialize(BSON::BSON_CODER.serialize(obj, false, false, mas_bson_size))
 
       row = []
       schema[:columns].each do |col|
